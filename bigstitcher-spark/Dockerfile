@@ -58,8 +58,8 @@ LABEL \
 
 USER root
 
-RUN apt-get update -y && \
-    apt-get install -y \
+RUN apt-get update -y || (sleep 30 && apt-get update -y) && \
+    apt-get install -y --fix-missing \
         libblosc1 libblosc-dev \
         libzstd1 libzstd-dev libhdf5-dev && \
     rm -rf /var/lib/apt/lists/*
