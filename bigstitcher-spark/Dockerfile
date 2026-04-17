@@ -32,19 +32,27 @@ RUN xq -x '/project/artifactId' pom.xml > target-name \
     && xq -x '/project/version' pom.xml > target-version \
     && mv target/$(cat target-name)-$(cat target-version).jar /build/app.jar
 
-# Stage 4: Patch the fat jar with our fixed classes
+# Stage 4: Patch the fat jar with our fixed classes.
+# Extract patched classes from the SNAPSHOT jars we built in stages 1-2,
+# then update the fat jar. Use explicit SNAPSHOT paths to avoid matching
+# the released versions that Maven also downloads.
 RUN cd /tmp \
-    && jar xf /root/.m2/repository/mpicbg/mpicbg/*/mpicbg-*.jar \
+    && MPICBG_JAR=$(find /root/.m2/repository/mpicbg/mpicbg -name 'mpicbg-*-SNAPSHOT.jar' | head -1) \
+    && MVRECON_JAR=$(find /root/.m2/repository/net/preibisch/multiview-reconstruction -name 'multiview-reconstruction-*-SNAPSHOT.jar' | head -1) \
+    && echo "Patching from: $MPICBG_JAR and $MVRECON_JAR" \
+    && jar xf "$MPICBG_JAR" \
         mpicbg/models/TileUtil.class \
         mpicbg/models/TileUtil\$1.class \
         mpicbg/models/TileUtil\$1\$1.class \
-    && jar xf /root/.m2/repository/net/preibisch/multiview-reconstruction/*/multiview-reconstruction-*.jar \
+    && jar xf "$MVRECON_JAR" \
         net/preibisch/mvrecon/process/interestpointregistration/global/GlobalOptIterative.class \
     && jar uf /build/app.jar \
         mpicbg/models/TileUtil.class \
         mpicbg/models/TileUtil\$1.class \
         mpicbg/models/TileUtil\$1\$1.class \
-        net/preibisch/mvrecon/process/interestpointregistration/global/GlobalOptIterative.class
+        net/preibisch/mvrecon/process/interestpointregistration/global/GlobalOptIterative.class \
+    && echo "Verifying patch:" \
+    && javap -c -cp /build/app.jar net.preibisch.mvrecon.process.interestpointregistration.global.GlobalOptIterative 2>&1 | grep -o "invokestatic.*optimizeConcurrently\|invokevirtual.*optimizeSilently"
 
 # Stage 5: Final runtime image
 FROM ghcr.io/janeliascicomp/spark:${SPARK_VERSION}
