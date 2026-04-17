@@ -1,0 +1,61 @@
+name: Build BigStitcher-Spark container
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bigstitcher-spark/**'
+      - '.github/workflows/build-bigstitcher-spark.yml'
+  workflow_dispatch:
+    inputs:
+      mpicbg_ref:
+        description: 'mpicbg branch/tag'
+        default: 'prepipe'
+      mvrecon_ref:
+        description: 'multiview-reconstruction branch/tag'
+        default: 'prepipe'
+      bigstitcher_spark_ref:
+        description: 'BigStitcher-Spark branch/tag'
+        default: 'main'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: e11bio/bigstitcher-spark
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: bigstitcher-spark
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            MPICBG_REF=${{ inputs.mpicbg_ref || 'prepipe' }}
+            MVRECON_REF=${{ inputs.mvrecon_ref || 'prepipe' }}
+            BIGSTITCHER_SPARK_REF=${{ inputs.bigstitcher_spark_ref || 'main' }}
