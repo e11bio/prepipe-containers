@@ -6,8 +6,13 @@ RUN apt-get update -y && apt-get install -y git maven
 
 WORKDIR /build/mpicbg
 ARG MPICBG_REPO=https://github.com/e11bio/mpicbg.git
-ARG MPICBG_REF=prepipe
-RUN git clone --depth 1 --branch ${MPICBG_REF} ${MPICBG_REPO} . \
+# Pin to a specific commit (not a branch tip) so the container build is
+# reproducible — branch-pinning bit us when an upstream fix wasn't picked up
+# without a manual rebuild trigger.
+ARG MPICBG_REF=276dffe1150c1038a9e6bdd609322d764d79705a
+RUN git init . \
+    && git fetch --depth 1 ${MPICBG_REPO} ${MPICBG_REF} \
+    && git checkout FETCH_HEAD \
     && mvn clean install -DskipTests -pl mpicbg
 
 # Stage 2: Build BigStitcher-Spark fat jar (against released deps)
@@ -15,8 +20,10 @@ FROM mpicbg-builder AS spark-builder
 RUN apt-get install -y curl && curl -sSL https://bit.ly/install-xq | bash
 WORKDIR /build/bigstitcher-spark
 ARG BIGSTITCHER_SPARK_REPO=https://github.com/e11bio/BigStitcher-Spark.git
-ARG BIGSTITCHER_SPARK_REF=main
-RUN git clone --depth 1 --branch ${BIGSTITCHER_SPARK_REF} ${BIGSTITCHER_SPARK_REPO} . \
+ARG BIGSTITCHER_SPARK_REF=6e2d7e9a456a9444124b8b424d95b916977142d8
+RUN git init . \
+    && git fetch --depth 1 ${BIGSTITCHER_SPARK_REPO} ${BIGSTITCHER_SPARK_REF} \
+    && git checkout FETCH_HEAD \
     && mvn clean package -Pfatjar -DskipTests
 
 # Find the built jar

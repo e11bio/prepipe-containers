@@ -9,14 +9,14 @@ on:
   workflow_dispatch:
     inputs:
       mpicbg_ref:
-        description: 'mpicbg branch/tag'
-        default: 'prepipe'
+        description: 'mpicbg commit SHA / branch / tag (Dockerfile pin used when blank)'
+        default: ''
       mvrecon_ref:
-        description: 'multiview-reconstruction branch/tag'
-        default: 'prepipe'
+        description: 'multiview-reconstruction commit SHA / branch / tag (Dockerfile pin used when blank)'
+        default: ''
       bigstitcher_spark_ref:
-        description: 'BigStitcher-Spark branch/tag'
-        default: 'main'
+        description: 'BigStitcher-Spark commit SHA / branch / tag (Dockerfile pin used when blank)'
+        default: ''
 
 env:
   REGISTRY: ghcr.io
@@ -60,7 +60,11 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # When inputs are blank (push trigger or unspecified workflow_dispatch),
+          # only pass build-args for refs the user actually overrode — letting the
+          # Dockerfile's pinned ARG defaults take effect. The conditional shell
+          # interpolation produces an empty line that build-push-action ignores.
           build-args: |
-            MPICBG_REF=${{ inputs.mpicbg_ref || 'prepipe' }}
-            MVRECON_REF=${{ inputs.mvrecon_ref || 'prepipe' }}
-            BIGSTITCHER_SPARK_REF=${{ inputs.bigstitcher_spark_ref || 'main' }}
+            ${{ inputs.mpicbg_ref && format('MPICBG_REF={0}', inputs.mpicbg_ref) || '' }}
+            ${{ inputs.mvrecon_ref && format('MVRECON_REF={0}', inputs.mvrecon_ref) || '' }}
+            ${{ inputs.bigstitcher_spark_ref && format('BIGSTITCHER_SPARK_REF={0}', inputs.bigstitcher_spark_ref) || '' }}
