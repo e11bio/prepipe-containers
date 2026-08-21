@@ -20,7 +20,7 @@ FROM mpicbg-builder AS spark-builder
 RUN apt-get install -y curl && curl -sSL https://bit.ly/install-xq | bash
 WORKDIR /build/bigstitcher-spark
 ARG BIGSTITCHER_SPARK_REPO=https://github.com/e11bio/BigStitcher-Spark.git
-ARG BIGSTITCHER_SPARK_REF=6e2d7e9a456a9444124b8b424d95b916977142d8
+ARG BIGSTITCHER_SPARK_REF=d52862cb11ab06c6a5c45c9db022aaa3404ec90c
 RUN git init . \
     && git fetch --depth 1 ${BIGSTITCHER_SPARK_REPO} ${BIGSTITCHER_SPARK_REF} \
     && git checkout FETCH_HEAD \
