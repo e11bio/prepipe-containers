@@ -1,77 +1,80 @@
 ARG SPARK_VERSION=3.3.2-scala2.12-java17-ubuntu24.04
 
-# Stage 1: Build patched mpicbg (concurrent solver fix)
+# Stage 1: Build patched mpicbg (concurrent solver fix + deterministic tile order)
 FROM azul/zulu-openjdk:8-latest AS mpicbg-builder
-RUN apt-get update -y && apt-get install -y git maven
+RUN apt-get update -y && apt-get install -y git maven curl
+
+# multiview-reconstruction has one Swing panel that imports javafx, and its pom leaves the
+# openjfx dependencies commented out: upstream builds it with a JDK that bundles JavaFX
+# (their CI asks setup-java for zulu 8 'jdk+fx'). This image's JDK does not, so fetch that
+# one and build with it. Pinned by exact version; the URL is Azul's public CDN.
+ARG ZULU_FX_URL=https://cdn.azul.com/zulu/bin/zulu8.96.0.19-ca-fx-jdk8.0.502-linux_x64.tar.gz
+RUN mkdir -p /opt/zulu-fx \
+    && curl -sSL ${ZULU_FX_URL} | tar -xz -C /opt/zulu-fx --strip-components=1 \
+    && test -f /opt/zulu-fx/jre/lib/ext/jfxrt.jar \
+    && /opt/zulu-fx/bin/java -version
+ENV JAVA_HOME=/opt/zulu-fx
+ENV PATH=/opt/zulu-fx/bin:${PATH}
 
 WORKDIR /build/mpicbg
 ARG MPICBG_REPO=https://github.com/e11bio/mpicbg.git
 # Pin to a specific commit (not a branch tip) so the container build is
 # reproducible — branch-pinning bit us when an upstream fix wasn't picked up
 # without a manual rebuild trigger.
-ARG MPICBG_REF=ec6bb2c4f5b2572d87c96a7879582b15860431ae
+ARG MPICBG_REF=b1a497278c6c3351c376b4c54ac11051754f4c99
 RUN git init . \
     && git fetch --depth 1 ${MPICBG_REPO} ${MPICBG_REF} \
     && git checkout FETCH_HEAD \
     && mvn clean install -DskipTests -pl mpicbg
 
-# Stage 2: Build BigStitcher-Spark fat jar (against released deps)
-FROM mpicbg-builder AS spark-builder
-RUN apt-get install -y curl && curl -sSL https://bit.ly/install-xq | bash
+# Stage 2: Build patched multiview-reconstruction against that mpicbg
+# (e11bio fork = the 8.0.0 release tag, the version BigStitcher-Spark builds against,
+# plus the one commit that re-enables the concurrent tile optimizer)
+FROM mpicbg-builder AS mvrecon-builder
+WORKDIR /build/mvrecon
+ARG MVRECON_REPO=https://github.com/e11bio/multiview-reconstruction.git
+ARG MVRECON_REF=3f5ac66ac9a3aefb53f3239679db5e12a3e33256
+ARG MPICBG_VERSION=1.6.7-SNAPSHOT
+RUN git init . \
+    && git fetch --depth 1 ${MVRECON_REPO} ${MVRECON_REF} \
+    && git checkout FETCH_HEAD \
+    && mvn clean install -DskipTests -Dmpicbg.mpicbg.version=${MPICBG_VERSION}
+
+# Stage 3: Build BigStitcher-Spark fat jar against our mvrecon and mpicbg
+FROM mvrecon-builder AS spark-builder
+RUN curl -sSL https://bit.ly/install-xq | bash
 WORKDIR /build/bigstitcher-spark
 ARG BIGSTITCHER_SPARK_REPO=https://github.com/e11bio/BigStitcher-Spark.git
 ARG BIGSTITCHER_SPARK_REF=b1f591279ab7162476ddffe1f3c4fd024b6f568b
+ARG MVRECON_VERSION=8.0.0
+ARG MPICBG_VERSION=1.6.7-SNAPSHOT
 RUN git init . \
     && git fetch --depth 1 ${BIGSTITCHER_SPARK_REPO} ${BIGSTITCHER_SPARK_REF} \
     && git checkout FETCH_HEAD \
-    && mvn clean package -Pfatjar -DskipTests
+    && mvn clean package -Pfatjar -DskipTests \
+        -Dmultiview-reconstruction.version=${MVRECON_VERSION} \
+        -Dmpicbg.mpicbg.version=${MPICBG_VERSION}
 
 # Find the built jar
 RUN xq -x '/project/artifactId' pom.xml > target-name \
     && xq -x '/project/version' pom.xml > target-version \
     && mv target/$(cat target-name)-$(cat target-version).jar /build/app.jar
 
-# Stage 3: Patch the fat jar with our fixed classes.
-# 1. TileUtil: extract from our patched mpicbg SNAPSHOT jar
-# 2. GlobalOptIterative: download the 8.0.0 source, apply patch, compile
-#    against the fat jar so the method signatures match BigStitcher-Spark
-ARG MVRECON_VERSION=8.0.0
-RUN cd /tmp \
-    && MPICBG_JAR=$(find /root/.m2/repository/mpicbg/mpicbg -name 'mpicbg-*-SNAPSHOT.jar' | head -1) \
-    && echo "Extracting TileUtil from: $MPICBG_JAR" \
-    && jar xf "$MPICBG_JAR" \
-        mpicbg/models/TileUtil.class \
-        mpicbg/models/TileUtil\$1.class \
-        mpicbg/models/TileUtil\$1\$1.class \
-    && echo "Downloading multiview-reconstruction ${MVRECON_VERSION} sources..." \
-    && curl -sL "https://maven.scijava.org/content/groups/public/net/preibisch/multiview-reconstruction/${MVRECON_VERSION}/multiview-reconstruction-${MVRECON_VERSION}-sources.jar" -o mvrecon-sources.jar \
-    && jar xf mvrecon-sources.jar \
-        net/preibisch/mvrecon/process/interestpointregistration/global/GlobalOptIterative.java \
-    && echo "Patching GlobalOptIterative.java..." \
-    && sed -i \
-        -e 's|tc\.optimizeSilently(new ErrorStatistic.*|//\0|' \
-        -e 's|/\*TileUtil\.optimizeConcurrently(|TileUtil.optimizeConcurrently(|' \
-        -e 's|tc, tc\.getTiles(), tc\.getFixedTiles(), Runtime\.getRuntime()\.availableProcessors());\*/|tc, tc.getTiles(), tc.getFixedTiles(), Runtime.getRuntime().availableProcessors());|' \
-        net/preibisch/mvrecon/process/interestpointregistration/global/GlobalOptIterative.java \
-    && echo "Compiling against fat jar + patched mpicbg..." \
-    && javac -source 8 -target 8 -cp "/build/app.jar:$MPICBG_JAR" \
-        -d /tmp \
-        net/preibisch/mvrecon/process/interestpointregistration/global/GlobalOptIterative.java \
-    && echo "Updating fat jar..." \
-    && jar uf /build/app.jar \
-        mpicbg/models/TileUtil.class \
-        mpicbg/models/TileUtil\$1.class \
-        mpicbg/models/TileUtil\$1\$1.class \
-        net/preibisch/mvrecon/process/interestpointregistration/global/GlobalOptIterative.class \
-    && echo "Verifying patch:" \
-    && javap -c -cp /build/app.jar net.preibisch.mvrecon.process.interestpointregistration.global.GlobalOptIterative 2>&1 | grep -o "invokestatic.*optimizeConcurrently\|invokevirtual.*optimizeSilently"
+# The fat jar must contain OUR mvrecon and OUR mpicbg, not the released ones. Both
+# resolve from the local repository this image populated, which is easy to get wrong
+# silently, so assert it rather than trusting the resolution order.
+RUN javap -c -cp /build/app.jar net.preibisch.mvrecon.process.interestpointregistration.global.GlobalOptIterative \
+        | grep -q "optimizeConcurrently" \
+    && javap -p -cp /build/app.jar mpicbg.models.TileUtil | grep -q "optimizeColored" \
+    && javap -p -cp /build/app.jar mpicbg.models.TileUtil | grep -q "defaultSeed" \
+    && echo "fat jar carries the e11bio mvrecon and mpicbg"
 
 # Stage 4: Final runtime image
 FROM ghcr.io/janeliascicomp/spark:${SPARK_VERSION}
 
 LABEL \
     org.opencontainers.image.title="BigStitcher Spark (E11 prepipe)" \
-    org.opencontainers.image.description="BigStitcher-Spark with concurrent tile optimization fix" \
+    org.opencontainers.image.description="BigStitcher-Spark built against the e11bio mpicbg and multiview-reconstruction forks" \
     org.opencontainers.image.authors="andrewc@e11.bio" \
     org.opencontainers.image.source="https://github.com/e11bio/prepipe-containers" \
     org.opencontainers.image.licenses="GPL-2.0-or-later"
