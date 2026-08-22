@@ -21,7 +21,7 @@ ARG MPICBG_REPO=https://github.com/e11bio/mpicbg.git
 # Pin to a specific commit (not a branch tip) so the container build is
 # reproducible — branch-pinning bit us when an upstream fix wasn't picked up
 # without a manual rebuild trigger.
-ARG MPICBG_REF=b1a497278c6c3351c376b4c54ac11051754f4c99
+ARG MPICBG_REF=7356b7bcc315f388f6243f68779f4fd880ef7ce6
 RUN git init . \
     && git fetch --depth 1 ${MPICBG_REPO} ${MPICBG_REF} \
     && git checkout FETCH_HEAD \
@@ -33,7 +33,7 @@ RUN git init . \
 FROM mpicbg-builder AS mvrecon-builder
 WORKDIR /build/mvrecon
 ARG MVRECON_REPO=https://github.com/e11bio/multiview-reconstruction.git
-ARG MVRECON_REF=3f5ac66ac9a3aefb53f3239679db5e12a3e33256
+ARG MVRECON_REF=9f7b4d12ecc1fca7987f1a0bf38a466573e26b6a
 ARG MPICBG_VERSION=1.6.7-SNAPSHOT
 RUN git init . \
     && git fetch --depth 1 ${MVRECON_REPO} ${MVRECON_REF} \
@@ -45,7 +45,7 @@ FROM mvrecon-builder AS spark-builder
 RUN curl -sSL https://bit.ly/install-xq | bash
 WORKDIR /build/bigstitcher-spark
 ARG BIGSTITCHER_SPARK_REPO=https://github.com/e11bio/BigStitcher-Spark.git
-ARG BIGSTITCHER_SPARK_REF=b1f591279ab7162476ddffe1f3c4fd024b6f568b
+ARG BIGSTITCHER_SPARK_REF=5e1efb15b75096d988b4ed52dfb3854b9e071619
 ARG MVRECON_VERSION=8.0.0
 ARG MPICBG_VERSION=1.6.7-SNAPSHOT
 RUN git init . \
