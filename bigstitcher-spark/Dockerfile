@@ -84,6 +84,15 @@ RUN apt-get update -y || (sleep 30 && apt-get update -y) && \
         libzstd1 libzstd-dev libhdf5-dev && \
     rm -rf /var/lib/apt/lists/*
 
+# /opt/scripts/runapp.sh (from the Janelia base image) expands
+# ${additional_spark_config[@]} unquoted, so any --spark-conf value containing a space -
+# two -D java options, say - is word-split and reaches spark-submit as stray arguments,
+# which makes it print its usage and exit 1. That is how the solver's schedule/seed
+# properties are passed, so quote it. The grep fails the build if the script changes
+# shape and the sed silently stops matching.
+RUN sed -i 's|^\( *\)${additional_spark_config\[@\]}$|\1"${additional_spark_config[@]}"|' /opt/scripts/runapp.sh \
+    && grep -qF '"${additional_spark_config[@]}"' /opt/scripts/runapp.sh
+
 WORKDIR /app
 COPY --from=spark-builder /build/bigstitcher-spark/LICENSE /app/LICENSE
 COPY --from=spark-builder /build/app.jar /app/app.jar
