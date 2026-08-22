@@ -9,7 +9,7 @@ ARG MPICBG_REPO=https://github.com/e11bio/mpicbg.git
 # Pin to a specific commit (not a branch tip) so the container build is
 # reproducible — branch-pinning bit us when an upstream fix wasn't picked up
 # without a manual rebuild trigger.
-ARG MPICBG_REF=c79797b2c350699f0c192661dc3da43715e1ca68
+ARG MPICBG_REF=ec6bb2c4f5b2572d87c96a7879582b15860431ae
 RUN git init . \
     && git fetch --depth 1 ${MPICBG_REPO} ${MPICBG_REF} \
     && git checkout FETCH_HEAD \
