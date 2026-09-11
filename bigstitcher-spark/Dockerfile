@@ -33,7 +33,7 @@ RUN git init . \
 FROM mpicbg-builder AS mvrecon-builder
 WORKDIR /build/mvrecon
 ARG MVRECON_REPO=https://github.com/e11bio/multiview-reconstruction.git
-ARG MVRECON_REF=9f7b4d12ecc1fca7987f1a0bf38a466573e26b6a
+ARG MVRECON_REF=d96a5673001e1e6cc73a8188fe1d0a99719d6b95
 ARG MPICBG_VERSION=1.6.7-SNAPSHOT
 RUN git init . \
     && git fetch --depth 1 ${MVRECON_REPO} ${MVRECON_REF} \
@@ -45,7 +45,7 @@ FROM mvrecon-builder AS spark-builder
 RUN curl -sSL https://bit.ly/install-xq | bash
 WORKDIR /build/bigstitcher-spark
 ARG BIGSTITCHER_SPARK_REPO=https://github.com/e11bio/BigStitcher-Spark.git
-ARG BIGSTITCHER_SPARK_REF=5e1efb15b75096d988b4ed52dfb3854b9e071619
+ARG BIGSTITCHER_SPARK_REF=f35b85058684e58f8f809d6e155ec3d9372bd180
 ARG MVRECON_VERSION=8.0.0
 ARG MPICBG_VERSION=1.6.7-SNAPSHOT
 RUN git init . \
@@ -67,6 +67,9 @@ RUN javap -c -cp /build/app.jar net.preibisch.mvrecon.process.interestpointregis
         | grep -q "optimizeConcurrently" \
     && javap -p -cp /build/app.jar mpicbg.models.TileUtil | grep -q "optimizeColored" \
     && javap -p -cp /build/app.jar mpicbg.models.TileUtil | grep -q "defaultSeed" \
+    && javap -p -cp /build/app.jar net.preibisch.mvrecon.process.interestpointregistration.global.convergence.SimpleIterativeConvergenceStrategy \
+        | grep -q "getMinMaxError" \
+    && javap -p -cp /build/app.jar net.preibisch.bigstitcher.spark.Solver | grep -q "minMaxError" \
     && echo "fat jar carries the e11bio mvrecon and mpicbg"
 
 # Stage 4: Final runtime image
